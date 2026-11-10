@@ -67,6 +67,8 @@ extension EnvironmentValues {
 }
 class FloatingPanel<Content: View>: NSPanel {
     @Binding var isPresented: Bool
+    private var dragStartMouseLocation: NSPoint?
+    private var dragStartWindowOrigin: NSPoint?
     init(view: () -> Content,
              contentRect: NSRect,
              backing: NSWindow.BackingStoreType = .buffered,
@@ -85,7 +87,7 @@ class FloatingPanel<Content: View>: NSPanel {
         collectionBehavior.insert(.canJoinAllSpaces)
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
-        isMovableByWindowBackground = true
+        isMovableByWindowBackground = false
         hidesOnDeactivate = false
         backgroundColor = NSColor.clear
         standardWindowButton(.miniaturizeButton)?.isHidden = true
@@ -128,5 +130,31 @@ class FloatingPanel<Content: View>: NSPanel {
     override func center() {
         let rect = self.screen?.frame
         self.setFrameOrigin(NSPoint(x: (rect!.width - self.frame.width)/2, y: (rect!.height - self.frame.height)/5))
+    }
+
+    // Backport explicit dragging from upstream 5dec62f3: AppKit's background
+    // dragging does not reliably move this borderless panel on macOS 27.
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            dragStartMouseLocation = NSEvent.mouseLocation
+            dragStartWindowOrigin = frame.origin
+            super.sendEvent(event)
+        case .leftMouseDragged:
+            guard let startMouse = dragStartMouseLocation,
+                  let startOrigin = dragStartWindowOrigin else {
+                super.sendEvent(event)
+                return
+            }
+            let mouse = NSEvent.mouseLocation
+            setFrameOrigin(NSPoint(x: startOrigin.x + mouse.x - startMouse.x,
+                                   y: startOrigin.y + mouse.y - startMouse.y))
+        case .leftMouseUp:
+            dragStartMouseLocation = nil
+            dragStartWindowOrigin = nil
+            super.sendEvent(event)
+        default:
+            super.sendEvent(event)
+        }
     }
 }

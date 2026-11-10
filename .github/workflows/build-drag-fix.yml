@@ -1,0 +1,63 @@
+name: Build macOS drag fix
+
+on:
+  push:
+    branches: [fix/macos-27-karaoke-drag]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Apple Silicon app with local ad hoc signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild build \
+            -project 'Lyric Fever.xcodeproj' \
+            -scheme SpotifyLyricsInMenubar \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+            MARKETING_VERSION=3.3 CURRENT_PROJECT_VERSION=3.3.1 \
+            2>&1 | tee build.log
+      - name: Verify and package app
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='build/DerivedData/Build/Products/Release/Lyric Fever.app'
+          codesign --verify --deep --strict --verbose=2 "$app"
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent "$app" dist/Lyric-Fever-3.3-drag-fix-arm64.zip
+          shasum -a 256 dist/*.zip > dist/SHA256SUMS.txt
+          {
+            echo "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+            echo "Base: upstream v3.3 (0dd215d2a88473500888be9530ea849cacdc554d)"
+            echo 'Fix: explicit mouse dragging adapted from upstream 5dec62f3'
+            echo 'Architecture: arm64; signing: ad hoc, not notarized'
+            xcodebuild -version
+          } > dist/BUILD-INFO.txt
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lyric-Fever-3.3-drag-fix-arm64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics
+          path: |
+            build.log
+            Lyric Fever.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          retention-days: 7
